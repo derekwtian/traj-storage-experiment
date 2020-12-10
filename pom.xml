@@ -179,6 +179,9 @@
           <descriptorRefs>
             <descriptorRef>jar-with-dependencies</descriptorRef>
           </descriptorRefs>
+          <descriptors>
+           <descriptor>${project.basedir}/assembly/release.xml</descriptor>
+          </descriptors>
           <archive>
             <manifest>
               <mainClass>edu.rmit.cidda.SimbaExp</mainClass>
