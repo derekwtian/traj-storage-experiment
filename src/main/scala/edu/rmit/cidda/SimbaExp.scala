@@ -27,6 +27,7 @@ object SimbaExp {
     var master = "local[4]"
     var PartitionsNum = 1024
     var PointInputPath = "file:///Users/tianwei/Projects/data/ais_small.csv"
+    var dryRunTimes = 20
 
     if (args.length > 0) {
       if (args.length % 2 == 0) {
@@ -37,6 +38,7 @@ object SimbaExp {
             case "f" => PointInputPath = args(i+1)
             case "p" => PartitionsNum = args(i+1).toInt
             case "l" => eachQueryLoopTimes = args(i+1).toInt
+            case "d" => dryRunTimes = args(i+1).toInt
           }
           i += 2
         }
@@ -45,7 +47,7 @@ object SimbaExp {
         return
       }
     }
-    println(s"Parameters: $master, $PointInputPath, $PartitionsNum, $eachQueryLoopTimes")
+    println(s"Parameters: $master, $PointInputPath, $PartitionsNum, $eachQueryLoopTimes, $dryRunTimes")
 
     val simbaSession = SimbaSession.builder().appName("SimbaAISExperiment").config("simba.index.partitions", PartitionsNum.toString).master(master).getOrCreate()
     Logger.getLogger("org").setLevel(Level.WARN)
@@ -71,7 +73,7 @@ object SimbaExp {
     simbaSession.indexTable("point1", RTreeType, "RTree", Array("x", "y"))
 
     //dry run
-    for (i <- 1 to 20) {
+    for (i <- 1 to dryRunTimes) {
       val count1 = simbaSession.sql("SELECT * FROM point1 WHERE x >= -180 and x <= 180 and y >= -90 and y <= 90").rdd.count()
     }
 
