@@ -11,8 +11,8 @@ object SimbaExp {
 
   val id = "538004086"
   val startTime = "2019-02-01T00:00:00"
-  val tqueries = List("2019-02-01T00:59:59", "2019-02-01T05:59:59", "2019-02-01T23:59:59", "2019-02-07T23:59:59", "2019-02-28T23:59:59")
-  val queries = List(
+  var tqueries = List("2019-02-01T00:59:59", "2019-02-01T05:59:59", "2019-02-01T23:59:59", "2019-02-07T23:59:59", "2019-02-28T23:59:59")
+  var queries = List(
     (-118.28, -118.23, 33.68, 33.73),
     (-118.30, -118.20, 33.66, 33.76),
     (-118.35, -118.15, 33.61, 33.81),
@@ -39,6 +39,10 @@ object SimbaExp {
             case "p" => PartitionsNum = args(i+1).toInt
             case "l" => eachQueryLoopTimes = args(i+1).toInt
             case "d" => dryRunTimes = args(i+1).toInt
+            case "x" => if (args(i+1).equals("scale")) {
+              tqueries = List("2019-02-01T23:59:59")
+              queries = List((-118.35, -118.15, 33.61, 33.81))
+            }
           }
           i += 2
         }
