@@ -2,7 +2,7 @@ package edu.rmit.cidda
 
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.simba.SimbaSession
-import edu.rmit.cidda.utils.DateTime
+import edu.rmit.cidda.util.DateTime
 import org.apache.spark.sql.simba.index.RTreeType
 
 
@@ -124,7 +124,7 @@ object SimbaExp {
       val t1 = System.currentTimeMillis()
 
       println("Selection Ratio (%): " + ((resultSize * 100.0) / count))
-      println(s"<Simba> ID-Temporal Query finished, use time ${(t1 - t0) / eachQueryLoopTimes}ms, $resultSize")
+      println(s"<Simba> ID-Temporal Query finished, use time ${(t1 - t0) / eachQueryLoopTimes.toDouble}ms, $resultSize")
     })
   }
 
@@ -149,7 +149,7 @@ object SimbaExp {
       val t1 = System.currentTimeMillis()
 
       println("Selection Ratio (%): " + ((resultSize * 100.0) / count))
-      println(s"<Simba> Spatial Range Query finished, use time ${(t1 - t0) / eachQueryLoopTimes}ms, $resultSize")
+      println(s"<Simba> Spatial Range Query finished, use time ${(t1 - t0) / eachQueryLoopTimes.toDouble}ms, $resultSize")
     })
   }
 
@@ -175,7 +175,7 @@ object SimbaExp {
         val t1 = System.currentTimeMillis()
 
         println("Selection Ratio (%): " + ((resultSize * 100.0) / count))
-        println(s"<Simba> Spatial-Temporal Range Query finished, use time ${(t1 - t0) / eachQueryLoopTimes}ms, $resultSize")
+        println(s"<Simba> Spatial-Temporal Range Query finished, use time ${(t1 - t0) / eachQueryLoopTimes.toDouble}ms, $resultSize")
       })
     })
   }
