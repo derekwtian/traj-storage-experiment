@@ -26,6 +26,7 @@ object DFTExp {
 
     var eachQueryLoopTimes = 5
     var master = "local[*]"
+    var mrs = "4g"
     var query_traj_filename = "file:///Users/tianwei/Projects/data/DFT_format/query/queries_dft.csv"
     var traj_data_filename = "file:///Users/tianwei/Projects/data/DFT_format/v25_dft.csv"
 
@@ -35,6 +36,7 @@ object DFTExp {
         while (i < args.length) {
           args(i) match {
             case "m" => master = args(i+1)
+            case "mrs" => mrs = args(i+1)
             case "q" => query_traj_filename = args(i+1)
             case "b" => traj_data_filename = args(i+1)
             case "l" => eachQueryLoopTimes = args(i+1).toInt
@@ -54,7 +56,7 @@ object DFTExp {
 
     val conf = new SparkConf().setAppName("DFT")
       .set("spark.locality.wait", "0")
-      .set("spark.driver.maxResultSize", "4g")
+      .set("spark.driver.maxResultSize", mrs)
     if (!master.equals("dla")) {
       conf.setMaster(master)
     }
@@ -67,7 +69,7 @@ object DFTExp {
 
     val queries = sc.textFile(query_traj_filename).map { line =>
       val splitted = line.split(',')
-      (splitted(1).toInt, LineSegment(Point(Array(splitted(5).toDouble, splitted(6).toDouble)),
+      (splitted(3).toInt, LineSegment(Point(Array(splitted(5).toDouble, splitted(6).toDouble)),
         Point(Array(splitted(8).toDouble, splitted(9).toDouble))))
     }.collect().groupBy(_._1).map(x => x._2.map(_._2))
 
@@ -78,12 +80,12 @@ object DFTExp {
       .map(x => x.split(','))
       .map(x => (LineSegment(Point(Array(x(5).toDouble, x(6).toDouble)),
         Point(Array(x(8).toDouble, x(9).toDouble))),
-        TrajMeta(x(1).toInt, x(2).toInt)))
+        TrajMeta(x(3).toInt, x(4).toInt)))
 
     val trajs = sc.textFile(traj_data_filename).mapPartitions(iter => {
       iter.map(x => {
         val splitted = x.split(",")
-        (splitted(1).toInt,
+        (splitted(3).toInt,
           LineSegment(Point(Array(splitted(5).toDouble, splitted(6).toDouble)),
             Point(Array(splitted(8).toDouble, splitted(9).toDouble))))
       }).toArray.groupBy(_._1).map(now => {
