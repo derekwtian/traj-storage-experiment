@@ -132,7 +132,7 @@ object DFT {
     pruning_bound
   }
 
-  def candiSelection(query_traj: Array[LineSegment], pruning_bound: Double, sc: SparkContext, compressed_traj: RDD[(Int, Array[Byte])], global_rtree: RTree, stat: Array[(MBR, Long, RoaringBitmap)], traj_global_rtree: RTree, indexed_seg_rdd: RDD[RTreeWithRR]): RDD[(Double, Int)] = {
+  def candiSelection(query_traj: Array[LineSegment], pruning_bound: Double, sc: SparkContext, compressed_traj: RDD[(Int, Array[Byte])], global_rtree: RTree, stat: Array[(MBR, Long, RoaringBitmap)], traj_global_rtree: RTree, indexed_seg_rdd: RDD[RTreeWithRR]): RDD[(Double, Int, Array[Point])] = {
     //calculate all saved traj_ids
     val global_prune = global_rtree.circleRange(query_traj, pruning_bound)
     val global_prune_set = global_prune.map(_._2).toSet
@@ -167,8 +167,12 @@ object DFT {
         val gzipIn = new GZIPInputStream(bais)
         val objectIn = new ObjectInputStream(gzipIn)
         val content = objectIn.readObject().asInstanceOf[Array[LineSegment]]
+
+        var points = content.map(item => item.start).toList
+        points = points :+ content.last.end
+
         //(Trajectory.hausdorffDistance(query_traj, content), x._1)
-        (Trajectory.discreteFrechetDistance(query_traj, content), x._1)
+        (Trajectory.discreteFrechetDistance(query_traj, content), x._1, points.toArray)
       }))
   }
 

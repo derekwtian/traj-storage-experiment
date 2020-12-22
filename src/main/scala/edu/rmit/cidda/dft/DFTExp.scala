@@ -20,9 +20,10 @@ object DFTExp {
   var global_rtree: RTree = null
 
   def main(args: Array[String]): Unit = {
-    var threshold_values = Array(0.1, 0.2, 0.3, 0.4, 0.5)
-    var k_values = Array(50, 100, 150, 200, 250)
+    var threshold_values = Array(0.05, 0.1, 0.2, 0.3, 0.4, 0.5)
+    var k_values = Array(1, 10, 30, 50, 70, 100)
     val c = 5
+    var printer = false
 
     var eachQueryLoopTimes = 5
     var master = "local[*]"
@@ -44,6 +45,7 @@ object DFTExp {
               k_values = Array(50)
               threshold_values = Array(0.2)
             }
+            case "s" => printer = args(i+1).toBoolean
           }
           i += 2
         }
@@ -52,7 +54,7 @@ object DFTExp {
         System.exit(1)
       }
     }
-    println(s"Parameters: $master, $query_traj_filename, $traj_data_filename, $eachQueryLoopTimes")
+    println(s"Parameters: $master, $mrs, $query_traj_filename, $traj_data_filename, $eachQueryLoopTimes, $printer")
 
     val conf = new SparkConf().setAppName("DFT")
       .set("spark.locality.wait", "0")
@@ -71,7 +73,7 @@ object DFTExp {
       val splitted = line.split(',')
       (splitted(3).toInt, LineSegment(Point(Array(splitted(5).toDouble, splitted(6).toDouble)),
         Point(Array(splitted(8).toDouble, splitted(9).toDouble))))
-    }.collect().groupBy(_._1).map(x => x._2.map(_._2))
+    }.collect().groupBy(_._1).map(x => (x._1, x._2.map(_._2)))
 
 
     val start = System.currentTimeMillis()
@@ -105,11 +107,12 @@ object DFTExp {
     println(s"<DFT> Time to build indexes: ${System.currentTimeMillis() - start}ms")
     println("------------------------------------------------------------")
 
-    println("<DFT> kNN Trajectory Search")
+    println("==> kNN Search")
     k_values.foreach(k => {
       var tot_time = 0.0
-      queries.foreach(query_traj => {
-        var res: Array[(Double, Int)] = null
+      queries.foreach(item => {
+        val query_traj = item._2
+        var res: Array[(Double, Int, String)] = null
         val t0 = System.currentTimeMillis()
         for (i <- 1 to eachQueryLoopTimes) {
           println(s"---------looptime: ${i}----------")
@@ -118,23 +121,26 @@ object DFTExp {
         val t1 = System.currentTimeMillis()
         tot_time += (t1 - t0) / eachQueryLoopTimes.toDouble
 
-        println("---------kNN trajectory query----------")
-        println(s"<DFT> Total Latency: ${(t1 - t0) / eachQueryLoopTimes.toDouble}ms, ${res.length}")
+        println(s"---------kNN trajectory query: TID ${item._1}, ${query_traj.length}----------")
+        println(s"<DFT-k> Total Latency: ${(t1 - t0) / eachQueryLoopTimes.toDouble}ms, ${res.length}")
 
-//        println("The results show as below:")
-//        res.foreach(println)
+        if (printer) {
+          println("The results show as below:")
+          res.foreach(println)
+        }
         println("------------------------------------------------------------")
       })
 
-      println(s"<DFT> Average Latency for k = $k is : ${tot_time / queries.size}ms")
+      println(s"<DFTkNN> Average Latency for k = $k is : ${tot_time / queries.size}ms")
       println("===================================================")
     })
 
-    println("<DFT> Threshold Search")
+    println("==> Threshold Search")
     threshold_values.foreach(threshold => {
       var tot_time = 0.0
-      queries.foreach(query_traj => {
-        var res: Array[(Double, Int)] = null
+      queries.foreach(item => {
+        val query_traj = item._2
+        var res: Array[(Double, Int, String)] = null
         val t0 = System.currentTimeMillis()
         for (i <- 1 to eachQueryLoopTimes) {
           println(s"---------looptime: ${i}----------")
@@ -143,15 +149,17 @@ object DFTExp {
         val t1 = System.currentTimeMillis()
         tot_time += (t1 - t0) / eachQueryLoopTimes.toDouble
 
-        println("---------similarity query----------")
-        println(s"<DFT> Total Latency: ${(t1 - t0) / eachQueryLoopTimes.toDouble}ms, ${res.length}")
+        println(s"---------similarity query: TID ${item._1}, ${query_traj.length}----------")
+        println(s"<DFT-s> Total Latency: ${(t1 - t0) / eachQueryLoopTimes.toDouble}ms, ${res.length}")
 
-//        println("The results show as below:")
-//        res.foreach(println)
+        if (printer) {
+          println("The results show as below:")
+          res.foreach(println)
+        }
         println("------------------------------------------------------------")
       })
 
-      println(s"<DFT> Average Latency for threshold = $threshold is : ${tot_time / queries.size}ms")
+      println(s"<DFTThreshold> Average Latency for threshold = $threshold is : ${tot_time / queries.size}ms")
       println("===================================================")
     })
 
@@ -159,32 +167,32 @@ object DFTExp {
     println("All DFT Measurements finished!")
   }
 
-  def kNNSearch(query_traj: Array[LineSegment], k: Int, c:Int): Array[(Double, Int)] = {
+  def kNNSearch(query_traj: Array[LineSegment], k: Int, c:Int): Array[(Double, Int, String)] = {
     var start = System.currentTimeMillis()
 
     val bc_query = sc.broadcast(query_traj)
     val pruning_bound = DFT.calcPruningBound(bc_query.value, k, c, sc, compressed_traj, global_rtree, stat, traj_global_rtree)
 
-    println(s"<DFT> Time to calculate pruning bound: ${System.currentTimeMillis() - start}ms")
+    println(s"==> Time to calculate pruning bound: ${System.currentTimeMillis() - start}ms")
     println("The pruning bound is: " + pruning_bound)
 
     start = System.currentTimeMillis()
-    val res = DFT.candiSelection(bc_query.value, pruning_bound, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd)
+    val res = DFT.candiSelection(bc_query.value, pruning_bound, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd).map(item => (item._1, item._2, item._3.mkString(", ")))
     //bc_query.destroy()
-    println(s"<DFT> Time to finish the final filter: ${System.currentTimeMillis() - start}ms")
+    println(s"==> Time to finish the final filter: ${System.currentTimeMillis() - start}ms")
     println(s"# of distance calculated: ${c * k + res.count()}")
 
     res.takeOrdered(k)(new ResultOrdering)
   }
 
-  def thresholdSearch(query_traj: Array[LineSegment], threshold: Double): Array[(Double, Int)] = {
+  def thresholdSearch(query_traj: Array[LineSegment], threshold: Double): Array[(Double, Int, String)] = {
     val start = System.currentTimeMillis()
 
     val bc_query = sc.broadcast(query_traj)
-    val res = DFT.candiSelection(bc_query.value, threshold, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd)
+    val res = DFT.candiSelection(bc_query.value, threshold, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd).map(item => (item._1, item._2, item._3.mkString(", ")))
     //bc_query.destroy()
 
-    println(s"<DFT> Time to finish the final filter: ${System.currentTimeMillis() - start}ms")
+    println(s"==> Time to finish the final filter: ${System.currentTimeMillis() - start}ms")
     println(s"# of distance calculated: ${res.count()}")
 
     res.filter(item => {
@@ -192,8 +200,8 @@ object DFTExp {
     }).collect()
   }
 
-  private class ResultOrdering extends Ordering[(Double, Int)] {
-    override def compare(x: (Double, Int), y: (Double, Int)): Int = x._1.compare(y._1)
+  private class ResultOrdering extends Ordering[(Double, Int, String)] {
+    override def compare(x: (Double, Int, String), y: (Double, Int, String)): Int = x._1.compare(y._1)
   }
 
 }
