@@ -6,6 +6,7 @@ import edu.utah.cs.spatial.{LineSegment, MBR, Point}
 import edu.utah.cs.trajectory.TrajMeta
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.rdd.RDD
+import org.apache.spark.storage.StorageLevel
 import org.apache.spark.{SparkConf, SparkContext}
 import org.roaringbitmap.RoaringBitmap
 
@@ -177,7 +178,7 @@ object DFTExp {
     println("The pruning bound is: " + pruning_bound)
 
     start = System.currentTimeMillis()
-    val res = DFT.candiSelection(bc_query.value, pruning_bound, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd).map(item => (item._1, item._2, item._3.mkString(", ")))
+    val res = DFT.candiSelection(bc_query.value, pruning_bound, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd).map(item => (item._1, item._2, item._3.mkString(", "))).persist(StorageLevel.MEMORY_AND_DISK_SER)
     //bc_query.destroy()
     println(s"==> Time to finish the final filter: ${System.currentTimeMillis() - start}ms")
     println(s"# of distance calculated: ${c * k + res.count()}")
@@ -189,7 +190,7 @@ object DFTExp {
     val start = System.currentTimeMillis()
 
     val bc_query = sc.broadcast(query_traj)
-    val res = DFT.candiSelection(bc_query.value, threshold, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd).map(item => (item._1, item._2, item._3.mkString(", ")))
+    val res = DFT.candiSelection(bc_query.value, threshold, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd).map(item => (item._1, item._2, item._3.mkString(", "))).persist(StorageLevel.MEMORY_AND_DISK_SER)
     //bc_query.destroy()
 
     println(s"==> Time to finish the final filter: ${System.currentTimeMillis() - start}ms")
