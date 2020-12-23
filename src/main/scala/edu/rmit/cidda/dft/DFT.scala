@@ -119,12 +119,8 @@ object DFT {
       .filter(x => bc_samples.value.contains(x._1))
       .repartition(Math.min(samples.size, sc.defaultParallelism))
       .map(x => {
-        val bais = new ByteArrayInputStream(x._2)
-        val gzipIn = new GZIPInputStream(bais)
-        val objectIn = new ObjectInputStream(gzipIn)
-        val content = objectIn.readObject().asInstanceOf[Array[LineSegment]]
         //Trajectory.hausdorffDistance(query_traj, content)
-        Trajectory.discreteFrechetDistance(query_traj, content)
+        Trajectory.discreteFrechetDistance(query_traj, trajReconstruct(x._2))
       })
       .takeOrdered(k).last
     //bc_samples.destroy()
@@ -132,7 +128,7 @@ object DFT {
     pruning_bound
   }
 
-  def candiSelection(query_traj: Array[LineSegment], pruning_bound: Double, sc: SparkContext, compressed_traj: RDD[(Int, Array[Byte])], global_rtree: RTree, stat: Array[(MBR, Long, RoaringBitmap)], traj_global_rtree: RTree, indexed_seg_rdd: RDD[RTreeWithRR]): RDD[(Double, Int, Array[Point])] = {
+  def candiSelection(query_traj: Array[LineSegment], pruning_bound: Double, sc: SparkContext, compressed_traj: RDD[(Int, Array[Byte])], global_rtree: RTree, stat: Array[(MBR, Long, RoaringBitmap)], traj_global_rtree: RTree, indexed_seg_rdd: RDD[RTreeWithRR]): RDD[(Double, Int, Array[Byte])] = {
     //calculate all saved traj_ids
     val global_prune = global_rtree.circleRange(query_traj, pruning_bound)
     val global_prune_set = global_prune.map(_._2).toSet
@@ -163,16 +159,17 @@ object DFT {
 
     final_filtered.repartition(sc.defaultParallelism)
       .mapPartitions(iter => iter.map(x =>{
-        val bais = new ByteArrayInputStream(x._2)
-        val gzipIn = new GZIPInputStream(bais)
-        val objectIn = new ObjectInputStream(gzipIn)
-        val content = objectIn.readObject().asInstanceOf[Array[LineSegment]]
-
-        val points = content.map(item => item.start) :+ content.last.end
-
         //(Trajectory.hausdorffDistance(query_traj, content), x._1)
-        (Trajectory.discreteFrechetDistance(query_traj, content), x._1, points)
+        (Trajectory.discreteFrechetDistance(query_traj, trajReconstruct(x._2)), x._1, x._2)
       }))
+  }
+
+  def trajReconstruct(trajCompressed: Array[Byte]): Array[LineSegment] = {
+    val bais = new ByteArrayInputStream(trajCompressed)
+    val gzipIn = new GZIPInputStream(bais)
+    val objectIn = new ObjectInputStream(gzipIn)
+    val traj = objectIn.readObject().asInstanceOf[Array[LineSegment]]
+    traj
   }
 
 }

@@ -113,7 +113,7 @@ object DFTExp {
       var tot_time = 0.0
       queries.foreach(item => {
         val query_traj = item._2
-        var res: Array[(Double, Int, String)] = null
+        var res: Array[(Double, Int, Array[Byte])] = null
         val t0 = System.currentTimeMillis()
         for (i <- 1 to eachQueryLoopTimes) {
           println(s"---------looptime: ${i}----------")
@@ -127,7 +127,11 @@ object DFTExp {
 
         if (printer) {
           println("The results show as below:")
-          res.foreach(println)
+          res.map(item => {
+            val traj = DFT.trajReconstruct(item._3)
+            val points = traj.map(item => item.start) :+ traj.last.end
+            (item._2, item._1, points.mkString(", "))
+          }).foreach(println)
         }
         println("------------------------------------------------------------")
       })
@@ -141,7 +145,7 @@ object DFTExp {
       var tot_time = 0.0
       queries.foreach(item => {
         val query_traj = item._2
-        var res: Array[(Double, Int, String)] = null
+        var res: Array[(Double, Int, Array[Byte])] = null
         val t0 = System.currentTimeMillis()
         for (i <- 1 to eachQueryLoopTimes) {
           println(s"---------looptime: ${i}----------")
@@ -155,7 +159,11 @@ object DFTExp {
 
         if (printer) {
           println("The results show as below:")
-          res.foreach(println)
+          res.map(item => {
+            val traj = DFT.trajReconstruct(item._3)
+            val points = traj.map(item => item.start) :+ traj.last.end
+            (item._2, item._1, points.mkString(", "))
+          }).foreach(println)
         }
         println("------------------------------------------------------------")
       })
@@ -168,7 +176,7 @@ object DFTExp {
     println("All DFT Measurements finished!")
   }
 
-  def kNNSearch(query_traj: Array[LineSegment], k: Int, c:Int): Array[(Double, Int, String)] = {
+  def kNNSearch(query_traj: Array[LineSegment], k: Int, c:Int): Array[(Double, Int, Array[Byte])] = {
     var start = System.currentTimeMillis()
 
     val bc_query = sc.broadcast(query_traj)
@@ -178,7 +186,7 @@ object DFTExp {
     println("The pruning bound is: " + pruning_bound)
 
     start = System.currentTimeMillis()
-    val res = DFT.candiSelection(bc_query.value, pruning_bound, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd).map(item => (item._1, item._2, item._3.mkString(", "))).persist(StorageLevel.MEMORY_AND_DISK_SER)
+    val res = DFT.candiSelection(bc_query.value, pruning_bound, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd).persist(StorageLevel.MEMORY_AND_DISK_SER)
     //bc_query.destroy()
     println(s"==> Time to finish the final filter: ${System.currentTimeMillis() - start}ms")
     println(s"# of distance calculated: ${c * k + res.count()}")
@@ -186,11 +194,11 @@ object DFTExp {
     res.takeOrdered(k)(new ResultOrdering)
   }
 
-  def thresholdSearch(query_traj: Array[LineSegment], threshold: Double): Array[(Double, Int, String)] = {
+  def thresholdSearch(query_traj: Array[LineSegment], threshold: Double): Array[(Double, Int, Array[Byte])] = {
     val start = System.currentTimeMillis()
 
     val bc_query = sc.broadcast(query_traj)
-    val res = DFT.candiSelection(bc_query.value, threshold, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd).map(item => (item._1, item._2, item._3.mkString(", "))).persist(StorageLevel.MEMORY_AND_DISK_SER)
+    val res = DFT.candiSelection(bc_query.value, threshold, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd).persist(StorageLevel.MEMORY_AND_DISK_SER)
     //bc_query.destroy()
 
     println(s"==> Time to finish the final filter: ${System.currentTimeMillis() - start}ms")
@@ -201,8 +209,8 @@ object DFTExp {
     }).collect()
   }
 
-  private class ResultOrdering extends Ordering[(Double, Int, String)] {
-    override def compare(x: (Double, Int, String), y: (Double, Int, String)): Int = x._1.compare(y._1)
+  private class ResultOrdering extends Ordering[(Double, Int, Array[Byte])] {
+    override def compare(x: (Double, Int, Array[Byte]), y: (Double, Int, Array[Byte])): Int = x._1.compare(y._1)
   }
 
 }
