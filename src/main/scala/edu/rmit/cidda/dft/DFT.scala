@@ -147,10 +147,10 @@ object DFT {
     }).reduce((a, b) => RoaringBitmap.or(a, b))
 
     val tot_pruned_traj = RoaringBitmap.or(pruned_traj_id1, pruned_traj_id2)
+    //val tot_prune_count = tot_pruned_traj.getCardinality
 
     //bc_pruning_bound.destroy()
 
-    //val tot_prune_count = tot_pruned_traj.getCardinality
 
     //final filter
     val bc_pruned_traj = sc.broadcast(tot_pruned_traj)
@@ -168,11 +168,10 @@ object DFT {
         val objectIn = new ObjectInputStream(gzipIn)
         val content = objectIn.readObject().asInstanceOf[Array[LineSegment]]
 
-        var points = content.map(item => item.start).toList
-        points = points :+ content.last.end
+        val points = content.map(item => item.start) :+ content.last.end
 
         //(Trajectory.hausdorffDistance(query_traj, content), x._1)
-        (Trajectory.discreteFrechetDistance(query_traj, content), x._1, points.toArray)
+        (Trajectory.discreteFrechetDistance(query_traj, content), x._1, points)
       }))
   }
 
