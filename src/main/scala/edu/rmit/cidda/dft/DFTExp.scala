@@ -6,7 +6,6 @@ import edu.utah.cs.spatial.{LineSegment, MBR, Point}
 import edu.utah.cs.trajectory.TrajMeta
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.rdd.RDD
-import org.apache.spark.storage.StorageLevel
 import org.apache.spark.{SparkConf, SparkContext}
 import org.roaringbitmap.RoaringBitmap
 
@@ -68,29 +67,34 @@ object DFTExp {
     Logger.getLogger("akka").setLevel(Level.WARN)
 
 
-    println(s"Input Data File: $query_traj_filename, $traj_data_filename")
+    val idOffset = 3
+    val startOffset = 5
+    val endOffset = startOffset + Array("x", "y", "t").length
+
+    println(s"Input Data File: $query_traj_filename, $traj_data_filename, $idOffset, $startOffset, $endOffset")
 
     val queries = sc.textFile(query_traj_filename).map { line =>
       val splitted = line.split(',')
-      (splitted(3).toInt, LineSegment(Point(Array(splitted(5).toDouble, splitted(6).toDouble)),
-        Point(Array(splitted(8).toDouble, splitted(9).toDouble))))
+      (splitted(idOffset).toInt, LineSegment(
+        Point(Array(splitted(startOffset).toDouble, splitted(startOffset + 1).toDouble)),
+        Point(Array(splitted(endOffset).toDouble, splitted(endOffset + 1).toDouble))))
     }.collect().groupBy(_._1).map(x => (x._1, x._2.map(_._2)))
 
 
     val start = System.currentTimeMillis()
 
     val dataRDD = sc.textFile(traj_data_filename)
-      .map(x => x.split(','))
-      .map(x => (LineSegment(Point(Array(x(5).toDouble, x(6).toDouble)),
-        Point(Array(x(8).toDouble, x(9).toDouble))),
-        TrajMeta(x(3).toInt, x(4).toInt)))
+      .map(x => x.split(',')).map(x => (LineSegment(
+        Point(Array(x(startOffset).toDouble, x(startOffset + 1).toDouble)),
+        Point(Array(x(endOffset).toDouble, x(endOffset + 1).toDouble))),
+        TrajMeta(x(idOffset).toInt, x(idOffset + 1).toInt)))
 
     val trajs = sc.textFile(traj_data_filename).mapPartitions(iter => {
       iter.map(x => {
         val splitted = x.split(",")
-        (splitted(3).toInt,
-          LineSegment(Point(Array(splitted(5).toDouble, splitted(6).toDouble)),
-            Point(Array(splitted(8).toDouble, splitted(9).toDouble))))
+        (splitted(idOffset).toInt, LineSegment(
+          Point(Array(splitted(startOffset).toDouble, splitted(startOffset + 1).toDouble)),
+          Point(Array(splitted(endOffset).toDouble, splitted(endOffset + 1).toDouble))))
       }).toArray.groupBy(_._1).map(now => {
         val cur_traj = now._2.sortBy(_._1).map(_._2)
         (DFT.getMBR(cur_traj), (now._1, cur_traj))
@@ -186,7 +190,7 @@ object DFTExp {
     println("The pruning bound is: " + pruning_bound)
 
     start = System.currentTimeMillis()
-    val res = DFT.candiSelection(bc_query.value, pruning_bound, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd).persist(StorageLevel.MEMORY_AND_DISK_SER)
+    val res = DFT.candiSelection(bc_query.value, pruning_bound, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd)
     //bc_query.destroy()
     println(s"==> Time to finish the final filter: ${System.currentTimeMillis() - start}ms")
     println(s"# of distance calculated: ${c * k + res.count()}")
@@ -198,7 +202,7 @@ object DFTExp {
     val start = System.currentTimeMillis()
 
     val bc_query = sc.broadcast(query_traj)
-    val res = DFT.candiSelection(bc_query.value, threshold, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd).persist(StorageLevel.MEMORY_AND_DISK_SER)
+    val res = DFT.candiSelection(bc_query.value, threshold, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd)
     //bc_query.destroy()
 
     println(s"==> Time to finish the final filter: ${System.currentTimeMillis() - start}ms")

@@ -49,7 +49,7 @@ object DFT {
       (x._2._1, baos.toByteArray)
     })).persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-    println(compressed_traj.count)
+    println(s"# Trajectories: ${compressed_traj.count}")
 
     val traj_stat = part_traj.mapPartitions(iter => {
       Array(iter.aggregate[(MBR, Int)]((null, 0))((res, now) => {
@@ -161,7 +161,7 @@ object DFT {
       .mapPartitions(iter => iter.map(x =>{
         //(Trajectory.hausdorffDistance(query_traj, content), x._1)
         (Trajectory.discreteFrechetDistance(query_traj, trajReconstruct(x._2)), x._1, x._2)
-      }))
+      })).persist(StorageLevel.MEMORY_AND_DISK_SER)
   }
 
   def trajReconstruct(trajCompressed: Array[Byte]): Array[LineSegment] = {
