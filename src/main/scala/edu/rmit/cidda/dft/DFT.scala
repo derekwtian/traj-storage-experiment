@@ -128,7 +128,7 @@ object DFT {
     pruning_bound
   }
 
-  def candiSelection(query_traj: Array[LineSegment], pruning_bound: Double, sc: SparkContext, compressed_traj: RDD[(Int, Array[Byte])], global_rtree: RTree, stat: Array[(MBR, Long, RoaringBitmap)], traj_global_rtree: RTree, indexed_seg_rdd: RDD[RTreeWithRR]): RDD[(Double, Int, Array[Byte])] = {
+  def candiSelection(query_traj: Array[LineSegment], pruning_bound: Double, sc: SparkContext, compressed_traj: RDD[(Int, Array[Byte])], global_rtree: RTree, stat: Array[(MBR, Long, RoaringBitmap)], traj_global_rtree: RTree, indexed_seg_rdd: RDD[RTreeWithRR]): RDD[(Double, Int)] = {
     //calculate all saved traj_ids
     val global_prune = global_rtree.circleRange(query_traj, pruning_bound)
     val global_prune_set = global_prune.map(_._2).toSet
@@ -160,8 +160,8 @@ object DFT {
     final_filtered.repartition(sc.defaultParallelism)
       .mapPartitions(iter => iter.map(x =>{
         //(Trajectory.hausdorffDistance(query_traj, content), x._1)
-        (Trajectory.discreteFrechetDistance(query_traj, trajReconstruct(x._2)), x._1, x._2)
-      })).persist(StorageLevel.MEMORY_AND_DISK_SER)
+        (Trajectory.discreteFrechetDistance(query_traj, trajReconstruct(x._2)), x._1)
+      }))
   }
 
   def trajReconstruct(trajCompressed: Array[Byte]): Array[LineSegment] = {
