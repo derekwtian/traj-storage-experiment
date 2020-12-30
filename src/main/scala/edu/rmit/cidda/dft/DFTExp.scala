@@ -173,7 +173,7 @@ object DFTExp {
 
           sum += t1 - t0
 
-          res.map(item => {
+          res.sorted(new ResultOrdering).map(item => {
             (idMap(item._2), item._1)
           }).foreach(println)
         }
