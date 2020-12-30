@@ -1,24 +1,14 @@
 package edu.rmit.cidda.dft
 
-import edu.utah.cs.index.RTree
-import edu.utah.cs.index_rr.RTreeWithRR
-import edu.utah.cs.spatial.{LineSegment, MBR, Point}
+import edu.utah.cs.spatial.{LineSegment, Point}
 import edu.utah.cs.trajectory.TrajMeta
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.{SparkConf, SparkContext}
-import org.roaringbitmap.RoaringBitmap
 
 
 object DFTExp {
   var sc: SparkContext = null
-
-  var compressed_traj: RDD[(Int, Array[Byte])] = null
-  var traj_global_rtree: RTree = null
-  var indexed_seg_rdd: RDD[RTreeWithRR] = null
-  var stat: Array[(MBR, Long, RoaringBitmap)] = null
-  var global_rtree: RTree = null
 
   def main(args: Array[String]): Unit = {
     var threshold_values = Array(0.05, 0.1, 0.2, 0.3, 0.4, 0.5)
@@ -27,9 +17,10 @@ object DFTExp {
     var printer = false
 
     var idOffset = 3
-    val startOffset = 5
+    var startOffset = 5
     val endOffset = startOffset + Array("x", "y", "t").length
 
+    var simFunc = "F"
     var eachQueryLoopTimes = 5
     var master = "local[*]"
     var mrs = "4g"
@@ -46,6 +37,8 @@ object DFTExp {
             case "q" => query_traj_filename = args(i+1)
             case "t" => traj_data_filename = args(i+1)
             case "id" => idOffset = args(i+1).toInt
+            case "start" => startOffset = args(i+1).toInt
+            case "df" => simFunc = args(i+1)
             case "l" => eachQueryLoopTimes = args(i+1).toInt
             case "x" => if (args(i+1).equals("scale")) {
               k_values = Array(50)
@@ -73,7 +66,7 @@ object DFTExp {
     Logger.getLogger("akka").setLevel(Level.WARN)
 
 
-    println(s"Input Data File: $query_traj_filename, $traj_data_filename, $idOffset, $startOffset, $endOffset")
+    println(s"Input Data File: $query_traj_filename, $traj_data_filename, $simFunc, $idOffset, $startOffset, $endOffset")
 
     val queryTraj = sc.textFile(query_traj_filename)
     val queryIDMap = queryTraj.map(line => {
@@ -116,12 +109,7 @@ object DFTExp {
     })
       .persist(StorageLevel.MEMORY_AND_DISK)
 
-    val index = DFT.buildIndex(dataRDD, trajs)
-    compressed_traj = index._1
-    traj_global_rtree = index._2
-    indexed_seg_rdd = index._3
-    stat = index._4
-    global_rtree = index._5
+    DFT.buildIndex(dataRDD, trajs)
     dataRDD.unpersist()
     trajs.unpersist()
 
@@ -139,9 +127,9 @@ object DFTExp {
         var res: Array[(Double, Int)] = null
         var sum = 0L
         for (i <- 1 to eachQueryLoopTimes) {
-          println(s"---------looptime: ${i}----------")
+          println(s"---------looptime: $i----------")
           val t0 = System.currentTimeMillis()
-          res = kNNSearch(query_traj, k, c)
+          res = kNNSearch(query_traj, simFunc, k, c)
           val t1 = System.currentTimeMillis()
 
           sum += t1 - t0
@@ -155,7 +143,7 @@ object DFTExp {
 
         if (printer) {
           println("The results show as below:")
-          refetchTraj(res).map(item => {
+          DFT.refetchTraj(res).map(item => {
             (item._1, item._2, item._3.mkString(", "))
           }).foreach(println)
         }
@@ -178,9 +166,9 @@ object DFTExp {
         var res: Array[(Double, Int)] = null
         var sum = 0L
         for (i <- 1 to eachQueryLoopTimes) {
-          println(s"---------looptime: ${i}----------")
+          println(s"---------looptime: $i----------")
           val t0 = System.currentTimeMillis()
-          res = thresholdSearch(query_traj, threshold)
+          res = thresholdSearch(query_traj, simFunc, threshold)
           val t1 = System.currentTimeMillis()
 
           sum += t1 - t0
@@ -194,7 +182,7 @@ object DFTExp {
 
         if (printer) {
           println("The results show as below:")
-          refetchTraj(res).map(item => {
+          DFT.refetchTraj(res).map(item => {
             (item._1, item._2, item._3.mkString(", "))
           }).foreach(println)
         }
@@ -211,17 +199,17 @@ object DFTExp {
     println("All DFT Measurements finished!")
   }
 
-  def kNNSearch(query_traj: Array[LineSegment], k: Int, c:Int): Array[(Double, Int)] = {
+  def kNNSearch(query_traj: Array[LineSegment], simFunc: String, k: Int, c:Int): Array[(Double, Int)] = {
     var start = System.currentTimeMillis()
 
     val bc_query = sc.broadcast(query_traj)
-    val pruning_bound = DFT.calcPruningBound(bc_query.value, k, c, sc, compressed_traj, global_rtree, stat, traj_global_rtree)
+    val pruning_bound = DFT.calcPruningBound(bc_query.value, simFunc, k, c, sc)
 
     println(s"==> Time to calculate pruning bound: ${System.currentTimeMillis() - start}ms")
     println("The pruning bound is: " + pruning_bound)
 
     start = System.currentTimeMillis()
-    val res = DFT.candiSelection(bc_query.value, pruning_bound, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd)
+    val res = DFT.candiSelection(bc_query.value, simFunc, pruning_bound, sc)
       .persist(StorageLevel.MEMORY_AND_DISK_SER)
     //bc_query.destroy()
     println(s"==> Time to finish the final filter: ${System.currentTimeMillis() - start}ms")
@@ -235,11 +223,11 @@ object DFTExp {
     result
   }
 
-  def thresholdSearch(query_traj: Array[LineSegment], threshold: Double): Array[(Double, Int)] = {
+  def thresholdSearch(query_traj: Array[LineSegment], simFunc: String, threshold: Double): Array[(Double, Int)] = {
     var start = System.currentTimeMillis()
 
     val bc_query = sc.broadcast(query_traj)
-    val res = DFT.candiSelection(bc_query.value, threshold, sc, compressed_traj, global_rtree, stat, traj_global_rtree, indexed_seg_rdd)
+    val res = DFT.candiSelection(bc_query.value, simFunc, threshold, sc)
       .persist(StorageLevel.MEMORY_AND_DISK_SER)
     //bc_query.destroy()
 
@@ -254,17 +242,6 @@ object DFTExp {
     res.unpersist()
 
     result
-  }
-
-  def refetchTraj(tids: Array[(Double, Int)]): Array[(Int, Double, Array[Point])] = {
-    val trajs = compressed_traj.filter(traj => {
-      tids.map(item => item._2).contains(traj._1)
-    }).collect().toMap
-    tids.map(item => {
-      val traj = DFT.trajReconstruct(trajs(item._2))
-      val points = traj.map(item => item.start) :+ traj.last.end
-      (item._2, item._1, points)
-    })
   }
 
   private class ResultOrdering extends Ordering[(Double, Int)] {

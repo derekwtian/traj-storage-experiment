@@ -18,6 +18,12 @@ import scala.collection.mutable
 object DFT {
   final val max_entries_per_node = 25
 
+  var compressed_traj: RDD[(Int, Array[Byte])] = null
+  var traj_global_rtree: RTree = null
+  var indexed_seg_rdd: RDD[RTreeWithRR] = null
+  var stat: Array[(MBR, Long, RoaringBitmap)] = null
+  var global_rtree: RTree = null
+
   def getMBR(x: Array[LineSegment]): MBR = {
     val pts = x.flatMap(p => Array(p.start, p.end))
     var maxx = Double.MinValue
@@ -40,7 +46,7 @@ object DFT {
   def buildIndex(dataRDD: RDD[(LineSegment, TrajMeta)], trajs: RDD[(MBR, (Int, Array[LineSegment]))]) = {
     val part_traj = STRTrajPartition(trajs, dataRDD.partitions.length, 0.01, max_entries_per_node)
 
-    val compressed_traj = part_traj.mapPartitions(iter => iter.map(x => {
+    compressed_traj = part_traj.mapPartitions(iter => iter.map(x => {
       val baos = new ByteArrayOutputStream()
       val gzipOut = new GZIPOutputStream(baos)
       val objectOut = new ObjectOutputStream(gzipOut)
@@ -61,13 +67,13 @@ object DFT {
         else (left._1.union(right._1), left._2 + right._2)
       })).iterator
     }).collect()
-    val traj_global_rtree =
+    traj_global_rtree =
       RTree.applyMBR(traj_stat.zipWithIndex.map(x => (x._1._1, x._2, x._1._2)), max_entries_per_node)
 
 
     val (partitioned_rdd, _) = STRSegPartition(dataRDD, dataRDD.partitions.length, 0.01, max_entries_per_node)
 
-    val indexed_seg_rdd = partitioned_rdd.mapPartitions(iter => {
+    indexed_seg_rdd = partitioned_rdd.mapPartitions(iter => {
       val data = iter.toArray
       var index: RTreeWithRR = if (data.length > 0) {
         RTreeWithRR(data.zipWithIndex.map(x => (x._1._1, x._2, x._1._2.traj_id)), max_entries_per_node)
@@ -75,14 +81,14 @@ object DFT {
       Array(index).iterator
     }).persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-    val stat = indexed_seg_rdd.mapPartitions(iter => iter.map(x => (x.root.m_mbr, x.root.size, x.root.rr))).collect()
+    stat = indexed_seg_rdd.mapPartitions(iter => iter.map(x => (x.root.m_mbr, x.root.size, x.root.rr))).collect()
 
-    val global_rtree = RTree.applyMBR(stat.zipWithIndex.map(x => (x._1._1, x._2, x._1._2.toInt)), max_entries_per_node)
-
-    (compressed_traj, traj_global_rtree, indexed_seg_rdd, stat, global_rtree)
+    global_rtree = RTree.applyMBR(stat.zipWithIndex.map(x => (x._1._1, x._2, x._1._2.toInt)), max_entries_per_node)
   }
 
-  def calcPruningBound(query_traj: Array[LineSegment], k: Int, c: Int, sc: SparkContext, compressed_traj: RDD[(Int, Array[Byte])], global_rtree: RTree, stat: Array[(MBR, Long, RoaringBitmap)], traj_global_rtree: RTree): Double = {
+  def calcPruningBound(query_traj: Array[LineSegment], simFunc: String, k: Int, c: Int,
+                       sc: SparkContext)
+  : Double = {
     val global_intersect = global_rtree.circleRange(query_traj, 0.0)
     val global_intersect_mbrs = global_intersect.map(_._1.asInstanceOf[MBR])
 
@@ -119,8 +125,15 @@ object DFT {
       .filter(x => bc_samples.value.contains(x._1))
       .repartition(Math.min(samples.size, sc.defaultParallelism))
       .map(x => {
+        val content = trajReconstruct(x._2)
+        simFunc match {
+          case "H" => Trajectory.hausdorffDistance(query_traj, content)
+          case "F" => Trajectory.discreteFrechetDistance(query_traj, content)
+          case "DTW" => Trajectory.dtwDistance(query_traj, content)
+          case "EDR" => Trajectory.EDRDistance(query_traj, content)
+          case "LCSS" => Trajectory.LCSSDistance(query_traj, content)
+        }
         //Trajectory.hausdorffDistance(query_traj, content)
-        Trajectory.discreteFrechetDistance(query_traj, trajReconstruct(x._2))
       })
       .takeOrdered(k).last
     //bc_samples.destroy()
@@ -128,7 +141,9 @@ object DFT {
     pruning_bound
   }
 
-  def candiSelection(query_traj: Array[LineSegment], pruning_bound: Double, sc: SparkContext, compressed_traj: RDD[(Int, Array[Byte])], global_rtree: RTree, stat: Array[(MBR, Long, RoaringBitmap)], traj_global_rtree: RTree, indexed_seg_rdd: RDD[RTreeWithRR]): RDD[(Double, Int)] = {
+  def candiSelection(query_traj: Array[LineSegment], simFunc: String, pruning_bound: Double,
+                     sc: SparkContext)
+  : RDD[(Double, Int)] = {
     //calculate all saved traj_ids
     val global_prune = global_rtree.circleRange(query_traj, pruning_bound)
     val global_prune_set = global_prune.map(_._2).toSet
@@ -159,8 +174,15 @@ object DFT {
 
     final_filtered.repartition(sc.defaultParallelism)
       .mapPartitions(iter => iter.map(x =>{
+        val content = trajReconstruct(x._2)
+        simFunc match {
+          case "H" => (Trajectory.hausdorffDistance(query_traj, content), x._1)
+          case "F" => (Trajectory.discreteFrechetDistance(query_traj, content), x._1)
+          case "DTW" => (Trajectory.dtwDistance(query_traj, content), x._1)
+          case "EDR" => (Trajectory.EDRDistance(query_traj, content), x._1)
+          case "LCSS" => (Trajectory.LCSSDistance(query_traj, content), x._1)
+        }
         //(Trajectory.hausdorffDistance(query_traj, content), x._1)
-        (Trajectory.discreteFrechetDistance(query_traj, trajReconstruct(x._2)), x._1)
       }))
   }
 
@@ -170,6 +192,17 @@ object DFT {
     val objectIn = new ObjectInputStream(gzipIn)
     val traj = objectIn.readObject().asInstanceOf[Array[LineSegment]]
     traj
+  }
+
+  def refetchTraj(tids: Array[(Double, Int)]): Array[(Int, Double, Array[Point])] = {
+    val trajs = compressed_traj.filter(traj => {
+      tids.map(item => item._2).contains(traj._1)
+    }).collect().toMap
+    tids.map(item => {
+      val traj = DFT.trajReconstruct(trajs(item._2))
+      val points = traj.map(item => item.start) :+ traj.last.end
+      (item._2, item._1, points)
+    })
   }
 
 }
