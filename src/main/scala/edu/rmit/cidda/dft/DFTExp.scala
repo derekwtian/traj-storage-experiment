@@ -9,19 +9,18 @@ import org.apache.spark.{SparkConf, SparkContext}
 
 object DFTExp {
   var sc: SparkContext = null
+  var eachQueryLoopTimes = 5
 
   def main(args: Array[String]): Unit = {
-    var threshold_values = Array(0.05, 0.1, 0.2, 0.3, 0.4, 0.5)
-    var k_values = Array(1, 10, 30, 50, 70, 100)
+    var threshold_values = Array(0.01, 0.02, 0.05, 0.1, 0.2, 0.4)
+    var k_values = Array(1, 2, 5, 10, 20, 50)
     val c = 5
     var printer = false
 
-    var idOffset = 3
+    var idOffset = 1
     var startOffset = 5
-    val endOffset = startOffset + Array("x", "y", "t").length
 
     var simFunc = "F"
-    var eachQueryLoopTimes = 5
     var master = "local[*]"
     var mrs = "4g"
     var query_traj_filename = "file:///Users/tianwei/Projects/data/DFT_format/query/queries_dft.csv"
@@ -40,6 +39,8 @@ object DFTExp {
             case "start" => startOffset = args(i+1).toInt
             case "df" => simFunc = args(i+1)
             case "l" => eachQueryLoopTimes = args(i+1).toInt
+            case "tau" => threshold_values = args(i+1).split(",").map(_.toDouble)
+            case "k" => k_values = args(i+1).split(",").map(_.toInt)
             case "x" => if (args(i+1).equals("scale")) {
               k_values = Array(50)
               threshold_values = Array(0.2)
@@ -66,6 +67,7 @@ object DFTExp {
     Logger.getLogger("akka").setLevel(Level.WARN)
 
 
+    val endOffset = startOffset + Array("x", "y", "t").length
     println(s"Input Data File: $query_traj_filename, $traj_data_filename, $simFunc, $idOffset, $startOffset, $endOffset")
 
     val queryTraj = sc.textFile(query_traj_filename)
@@ -117,86 +119,130 @@ object DFTExp {
     println(s"<DFT> Time to build indexes: ${System.currentTimeMillis() - start}ms")
     println("------------------------------------------------------------")
 
-    println("==> kNN Search")
-    k_values.foreach(k => {
-      var tot_time = 0.0
-      queries.foreach(item => {
-        val query_traj = item._2
-        println(s"---------kNN trajectory query: TID ${item._1}, ${query_traj.length}----------")
+    println("==========> Threshold Search")
+    threshold_values.foreach(threshold => {
+      val times = Array.ofDim[Double](queries.length)
+      for (i <- queries.indices) {
+        val item = queries(i)
+        times(i) = simProcessing(queryIDMap(item._1), item._2, simFunc, threshold)
+      }
+      println(s"====>Avg Time, $threshold, ${times.sum / queries.length.toDouble}")
 
-        var res: Array[(Double, Int)] = null
-        var sum = 0L
-        for (i <- 1 to eachQueryLoopTimes) {
-          println(s"---------looptime: $i----------")
-          val t0 = System.currentTimeMillis()
-          res = kNNSearch(query_traj, simFunc, k, c)
-          val t1 = System.currentTimeMillis()
-
-          sum += t1 - t0
-
-          res.map(item => {
-            (idMap(item._2), item._1)
-          }).foreach(println)
-        }
-
-        println(s"<DFT-k> Total Latency (k = $k): ${queryIDMap(item._1)} -> ${sum / eachQueryLoopTimes.toDouble}ms, ${res.length}")
-
-        if (printer) {
-          println("The results show as below:")
-          DFT.refetchTraj(res).map(item => {
-            (item._1, item._2, item._3.mkString(", "))
-          }).foreach(println)
-        }
-        println("------------------------------------------------------------")
-
-        tot_time += sum / eachQueryLoopTimes.toDouble
-      })
-
-      println(s"<DFTkNN> Average Latency for k = $k is : ${tot_time / queries.length}ms")
-      println("===================================================")
+      //      var tot_time = 0.0
+      //      queries.foreach(item => {
+      //        val query_traj = item._2
+      //        println(s"---------similarity query: TID ${item._1}, ${query_traj.length}----------")
+      //
+      //        var res: Array[(Double, Int)] = null
+      //        var sum = 0L
+      //        for (i <- 1 to eachQueryLoopTimes) {
+      //          println(s"---------looptime: $i----------")
+      //          val t0 = System.currentTimeMillis()
+      //          res = thresholdSearch(query_traj, simFunc, threshold)
+      //          val t1 = System.currentTimeMillis()
+      //
+      //          sum += t1 - t0
+      //
+      //          res.sorted(new ResultOrdering).map(item => {
+      //            (idMap(item._2), item._1)
+      //          }).foreach(println)
+      //        }
+      //
+      //        println(s"<DFT-s> Total Latency (threshold = $threshold): ${queryIDMap(item._1)} -> ${sum / eachQueryLoopTimes.toDouble}ms, ${res.length}")
+      //
+      //        if (printer) {
+      //          println("The results show as below:")
+      //          DFT.refetchTraj(res).map(item => {
+      //            (item._1, item._2, item._3.mkString(", "))
+      //          }).foreach(println)
+      //        }
+      //        println("------------------------------------------------------------")
+      //
+      //        tot_time += sum / eachQueryLoopTimes.toDouble
+      //      })
+      //
+      //      println(s"<DFTSim> Average Latency for threshold = $threshold is : ${tot_time / queries.length}ms")
+      //      println("===================================================")
     })
 
-    println("==> Threshold Search")
-    threshold_values.foreach(threshold => {
-      var tot_time = 0.0
-      queries.foreach(item => {
-        val query_traj = item._2
-        println(s"---------similarity query: TID ${item._1}, ${query_traj.length}----------")
+    println("==========> kNN Search")
+    k_values.foreach(k => {
+      val times = Array.ofDim[Double](queries.length)
+      for (i <- queries.indices) {
+        val item = queries(i)
+        times(i) = kNNProcessing(queryIDMap(item._1), item._2, simFunc, k, c)
+      }
+      println(s"====>Avg Time, $k, ${times.sum / queries.length.toDouble}")
 
-        var res: Array[(Double, Int)] = null
-        var sum = 0L
-        for (i <- 1 to eachQueryLoopTimes) {
-          println(s"---------looptime: $i----------")
-          val t0 = System.currentTimeMillis()
-          res = thresholdSearch(query_traj, simFunc, threshold)
-          val t1 = System.currentTimeMillis()
-
-          sum += t1 - t0
-
-          res.sorted(new ResultOrdering).map(item => {
-            (idMap(item._2), item._1)
-          }).foreach(println)
-        }
-
-        println(s"<DFT-s> Total Latency (threshold = $threshold): ${queryIDMap(item._1)} -> ${sum / eachQueryLoopTimes.toDouble}ms, ${res.length}")
-
-        if (printer) {
-          println("The results show as below:")
-          DFT.refetchTraj(res).map(item => {
-            (item._1, item._2, item._3.mkString(", "))
-          }).foreach(println)
-        }
-        println("------------------------------------------------------------")
-
-        tot_time += sum / eachQueryLoopTimes.toDouble
-      })
-
-      println(s"<DFTSim> Average Latency for threshold = $threshold is : ${tot_time / queries.length}ms")
-      println("===================================================")
+      //      var tot_time = 0.0
+      //      queries.foreach(item => {
+      //        val query_traj = item._2
+      //        println(s"---------kNN trajectory query: TID ${item._1}, ${query_traj.length}----------")
+      //
+      //        var res: Array[(Double, Int)] = null
+      //        var sum = 0L
+      //        for (i <- 1 to eachQueryLoopTimes) {
+      //          println(s"---------looptime: $i----------")
+      //          val t0 = System.currentTimeMillis()
+      //          res = kNNSearch(query_traj, simFunc, k, c)
+      //          val t1 = System.currentTimeMillis()
+      //
+      //          sum += t1 - t0
+      //
+      //          res.map(item => {
+      //            (idMap(item._2), item._1)
+      //          }).foreach(println)
+      //        }
+      //
+      //        println(s"<DFT-k> Total Latency (k = $k): ${queryIDMap(item._1)} -> ${sum / eachQueryLoopTimes.toDouble}ms, ${res.length}")
+      //
+      //        if (printer) {
+      //          println("The results show as below:")
+      //          DFT.refetchTraj(res).map(item => {
+      //            (item._1, item._2, item._3.mkString(", "))
+      //          }).foreach(println)
+      //        }
+      //        println("------------------------------------------------------------")
+      //
+      //        tot_time += sum / eachQueryLoopTimes.toDouble
+      //      })
+      //
+      //      println(s"<DFTkNN> Average Latency for k = $k is : ${tot_time / queries.length}ms")
+      //      println("===================================================")
     })
 
     sc.stop()
     println("All DFT Measurements finished!")
+  }
+
+  def kNNProcessing(id: String, query_traj: Array[LineSegment], simFunc: String, k: Int, c: Int): Double = {
+    var res: Array[(Double, Int)] = null
+    val times = Array.ofDim[Long](eachQueryLoopTimes)
+    for (i <- 0 until eachQueryLoopTimes) {
+      val t0 = System.currentTimeMillis()
+      res = kNNSearch(query_traj, simFunc, k, c)
+      val t1 = System.currentTimeMillis()
+      times(i) = t1 - t0
+    }
+
+    var str = s"$id,${query_traj.length},${res.length},${times.sum / eachQueryLoopTimes.toDouble},${times.min},${times.max},${times.sum}, "
+    println(str + times.mkString(","))
+    times.sum / eachQueryLoopTimes.toDouble
+  }
+
+  def simProcessing(id: String, query_traj: Array[LineSegment], simFunc: String, threshold: Double): Double = {
+    var res: Array[(Double, Int)] = null
+    val times = Array.ofDim[Long](eachQueryLoopTimes)
+    for (i <- 0 until eachQueryLoopTimes) {
+      val t0 = System.currentTimeMillis()
+      res = thresholdSearch(query_traj, simFunc, threshold)
+      val t1 = System.currentTimeMillis()
+      times(i) = t1 - t0
+    }
+
+    var str = s"$id,${query_traj.length},${res.length},${times.sum / eachQueryLoopTimes.toDouble},${times.min},${times.max},${times.sum}, "
+    println(str + times.mkString(","))
+    times.sum / eachQueryLoopTimes.toDouble
   }
 
   def kNNSearch(query_traj: Array[LineSegment], simFunc: String, k: Int, c:Int): Array[(Double, Int)] = {
