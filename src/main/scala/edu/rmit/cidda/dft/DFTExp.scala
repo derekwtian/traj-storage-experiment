@@ -10,6 +10,7 @@ import org.apache.spark.{SparkConf, SparkContext}
 object DFTExp {
   var sc: SparkContext = null
   var eachQueryLoopTimes = 5
+  var showResult = false
 
   def main(args: Array[String]): Unit = {
     var threshold_values = Array(0.01, 0.02, 0.05, 0.1, 0.2, 0.4)
@@ -39,6 +40,7 @@ object DFTExp {
             case "start" => startOffset = args(i+1).toInt
             case "df" => simFunc = args(i+1)
             case "l" => eachQueryLoopTimes = args(i+1).toInt
+            case "show" => showResult = args(i+1).toBoolean
             case "tau" => threshold_values = args(i+1).split(",").map(_.toDouble)
             case "k" => k_values = args(i+1).split(",").map(_.toInt)
             case "x" => if (args(i+1).equals("scale")) {
@@ -223,6 +225,12 @@ object DFTExp {
       res = kNNSearch(query_traj, simFunc, k, c)
       val t1 = System.currentTimeMillis()
       times(i) = t1 - t0
+    }
+
+    if (showResult) {
+      res.foreach(item => {
+        println(id, item._2, item._1)
+      })
     }
 
     var str = s"$id,${query_traj.length},${res.length},${times.sum / eachQueryLoopTimes.toDouble},${times.min},${times.max},${times.sum}, "
