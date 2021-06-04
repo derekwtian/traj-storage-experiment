@@ -141,7 +141,7 @@ def transform_beijing(file_name):
                 point2 = traj[index+1].split(",")
                 dft_output_file.writerow([tid, row_num, sid, point1[2], point1[3], point1[1], point2[2], point2[3], point2[1]])
                 sid += 1
-            print(row_num, len(traj))
+            print(row_num, len(traj))cd
         else:
             print(row_num, "null")
         row_num += 1
