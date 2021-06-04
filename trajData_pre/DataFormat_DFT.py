@@ -141,7 +141,7 @@ def transform_beijing(file_name):
                 point2 = traj[index+1].split(",")
                 dft_output_file.writerow([tid, row_num, sid, point1[2], point1[3], point1[1], point2[2], point2[3], point2[1]])
                 sid += 1
-            print(row_num, len(traj))cd
+            print(row_num, len(traj))
         else:
             print(row_num, "null")
         row_num += 1
@@ -150,16 +150,16 @@ def transform_beijing(file_name):
 def query_generation(file_name):
     reader = csv.reader(open(file_name, "r"))
     tids = [
-        "20000166>_<1392031153",
-        "20000178>_<1392232021",
-        "20000610>_<1392410130",
-        "20000624>_<1392630511",
+        "20000288>_<1396346501",
+        "20000189>_<1397490604",
+        "20000684>_<1397865183",
+        "20000108>_<1398702809",
+        "20000681>_<1393499660",
+        "20000398>_<1393725653",
         "20000370>_<1392838950",
         "20000229>_<1392995308",
-        "20000624>_<1393170834",
-        "20000502>_<1393405206",
-        "20000681>_<1393499660",
-        "20000398>_<1393725653"
+        "20000610>_<1392410130",
+        "20000502>_<1393405206"
     ]
     queries = []
     count = set()
@@ -169,6 +169,7 @@ def query_generation(file_name):
             queries.append(item)
 
     print(len(count))
+    print(count)
     print(set(tids) - count)
     utils.csvWriter("./queries_dft_porto.csv", queries)
 
